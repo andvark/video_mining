@@ -1,0 +1,5 @@
+[
+  {"video_id": "sample", "timestamp": 1.2, "sentence": "大家好，欢迎收听今天的播客。", "phrase": "播客"},
+  {"video_id": "sample", "timestamp": 9.0, "sentence": "今天我们聊聊学习中文的方法。", "phrase": ""},
+  {"video_id": "sample", "timestamp": 13.5, "sentence": "这样可以提高我的听力水平。", "phrase": "听力水平"}
+]

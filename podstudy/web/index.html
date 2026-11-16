@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>podstudy</title>
+<style>
+  :root { --bg:#fafafa; --fg:#1a1a1a; --mut:#777; --acc:#c0392b; --card:#fff; --line:#ddd; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16181c; --fg:#e8e8e8; --mut:#999; --card:#1f2228; --line:#333; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:system-ui,sans-serif; }
+  header { position:sticky; top:0; background:var(--card); border-bottom:1px solid var(--line); padding:8px 16px; z-index:2; }
+  #player { max-width:640px; margin:0 auto 6px; } #yt, audio { width:100%; } #yt { aspect-ratio:16/9; border:0; }
+  .modes button { padding:4px 10px; border:1px solid var(--line); background:var(--bg); color:var(--fg); cursor:pointer; }
+  .modes button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+  #status { color:var(--mut); font-size:13px; margin-left:8px; }
+  main { max-width:760px; margin:0 auto; padding:8px 16px 80px; }
+  .s { padding:8px 10px; margin:4px 0; border-radius:6px; background:var(--card); border-left:4px solid transparent; cursor:pointer; }
+  .s.active { border-left-color:var(--acc); }
+  .s.marked { background:rgba(241,196,15,.18); }
+  .zh { font-size:22px; line-height:1.9; }
+  .w.unk { text-decoration:underline; text-decoration-color:var(--acc); text-underline-offset:4px; }
+  rt { font-size:11px; color:var(--mut); }
+  .en { color:var(--mut); font-size:15px; margin-top:2px; }
+  .en.hidden { filter:blur(6px); user-select:none; }
+  .t { color:var(--mut); font-size:11px; }
+</style>
+</head>
+<body>
+<header>
+  <div id="player"></div>
+  <div class="modes" id="modes">
+    <button data-m="zh">中文</button>
+    <button data-m="py">中文+拼音</button>
+    <button data-m="en">中文+EN</button>
+    <button data-m="click">EN (click to reveal)</button>
+    <span id="status">Press <b>M</b> to flag the current sentence; select words to flag a phrase.</span>
+  </div>
+</header>
+<main id="list"></main>
+<script>
+"use strict";
+let master, known = new Set(), marks = [], mode = localStorage.getItem("ps-mode") || "py", player = null, active = -1;
+const $ = (s) => document.querySelector(s);
+const list = $("#list");
+
+async function init() {
+  [master, marks] = await Promise.all([fetch("/api/master").then(r => r.json()), fetch("/api/marks").then(r => r.json())]);
+  known = new Set(await fetch("/api/known").then(r => r.json()));
+  document.title = "podstudy · " + (master.title || master.video_id);
+  setupPlayer();
+  render();
+  setInterval(tick, 100);
+}
+
+function setupPlayer() {
+  const box = $("#player");
+  if (master.source.type === "youtube") {
+    box.innerHTML = '<div id="yt"></div>';
+    const s = document.createElement("script");
+    s.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(s);
+    window.onYouTubeIframeAPIReady = () => {
+      new YT.Player("yt", { videoId: master.video_id, width: "100%", events: { onReady: (e) => { player = { t: () => e.target.getCurrentTime(), seek: (x) => { e.target.seekTo(x, true); e.target.playVideo(); } }; } } });
+    };
+  } else {
+    box.innerHTML = '<audio controls src="/media/audio"></audio>';
+    const a = box.firstChild;
+    player = { t: () => a.currentTime, seek: (x) => { a.currentTime = x; a.play(); } };
+  }
+}
+
+function render() {
+  document.querySelectorAll("#modes button").forEach(b => b.classList.toggle("on", b.dataset.m === mode));
+  const hasEn = master.en_available;
+  list.innerHTML = "";
+  master.sentences.forEach((s, i) => {
+    const el = document.createElement("div");
+    el.className = "s"; el.dataset.i = i;
+    el.classList.toggle("marked", marks.some(m => m.sentence === s.zh));
+    const words = s.words.map(w => {
+      const han = /[㐀-鿿]/.test(w.text), unk = han && !known.has(w.text);
+      const inner = mode === "py" && w.pinyin ? `<ruby>${esc(w.text)}<rt>${esc(w.pinyin)}</rt></ruby>` : esc(w.text);
+      return `<span class="w${unk ? " unk" : ""}" data-w="${esc(w.text)}">${inner}</span>`;
+    }).join("");
+    let html = `<div class="t">${fmt(s.start)}</div><div class="zh">${words}</div>`;
+    if ((mode === "en" || mode === "click") && hasEn && s.en)
+      html += `<div class="en${mode === "click" ? " hidden" : ""}">${esc(s.en)}</div>`;
+    else if ((mode === "en" || mode === "click") && !hasEn)
+      html += `<div class="en">(no English available for this video)</div>`;
+    el.innerHTML = html;
+    el.addEventListener("click", (ev) => {
+      const en = ev.target.closest(".en.hidden");
+      if (en) { en.classList.remove("hidden"); return; }
+      if (String(getSelection()).trim()) return;
+      if (player) player.seek(s.start);
+    });
+    list.appendChild(el);
+  });
+  active = -1;
+  $("#status").textContent = `${marks.length} mark(s). Press M to flag the current sentence; select words to flag a phrase.`;
+}
+
+const esc = (t) => t.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+
+function currentIndex() {
+  if (!player) return -1;
+  const t = player.t();
+  let idx = -1;
+  master.sentences.forEach((s, i) => { if (t >= s.start - 0.05) idx = i; });
+  return idx;
+}
+
+function tick() {
+  const i = currentIndex();
+  if (i === active) return;
+  active = i;
+  document.querySelectorAll(".s.active").forEach(e => e.classList.remove("active"));
+  const el = list.children[i];
+  if (el) { el.classList.add("active"); el.scrollIntoView({ block: "center", behavior: "smooth" }); }
+}
+
+async function addMark(sentence, phrase, timestamp) {
+  marks = await fetch("/api/marks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ timestamp, sentence, phrase }) }).then(r => r.json());
+  const scroll = window.scrollY; render(); window.scrollTo(0, scroll);
+  const el = list.children[active]; if (el) el.classList.add("active");
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() !== "m" || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  const i = currentIndex(); if (i < 0) return;
+  addMark(master.sentences[i].zh, "", player.t());
+});
+
+document.addEventListener("mouseup", () => {
+  const sel = getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+  const range = sel.getRangeAt(0);
+  const sentEl = (sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode).closest(".s");
+  if (!sentEl) return;
+  const spans = [...sentEl.querySelectorAll(".w")].filter(w => range.intersectsNode(w));
+  const phrase = spans.map(w => w.dataset.w).join("");
+  if (!phrase) return;
+  const s = master.sentences[+sentEl.dataset.i];
+  sel.removeAllRanges();
+  addMark(s.zh, phrase, s.start);
+});
+
+$("#modes").addEventListener("click", (e) => {
+  const m = e.target.dataset && e.target.dataset.m; if (!m) return;
+  mode = m; try { localStorage.setItem("ps-mode", m); } catch (_) {}
+  render();
+});
+
+init();
+</script>
+</body>
+</html>

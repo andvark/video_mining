@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "podstudy"
+version = "0.1.0"
+description = "Learn Chinese from YouTube podcasts: transcripts, pinyin, viewer, Anki cards"
+requires-python = ">=3.11"
+dependencies = [
+  "yt-dlp",
+  "faster-whisper",
+  "opencc-python-reimplemented",
+  "pypinyin",
+  "jieba",
+  "genanki",
+  "fastapi",
+  "uvicorn",
+]
+
+[project.optional-dependencies]
+llm = ["anthropic"]
+dev = ["pytest", "ruff", "httpx"]
+
+[project.scripts]
+podstudy = "podstudy.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["podstudy*"]
+
+[tool.setuptools.package-data]
+podstudy = ["web/*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
