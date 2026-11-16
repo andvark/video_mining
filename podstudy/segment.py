@@ -34,10 +34,13 @@ def _char_times(cues: list[Cue]) -> list[tuple[str, float, float]]:
     return out
 
 
-def split_sentences(cues: list[Cue], max_chars: int = 60) -> list[Cue]:
+def split_sentences(
+    cues: list[Cue], max_chars: int = 60, max_gap: float = 0.8
+) -> list[Cue]:
     """Join cues, normalise to simplified, split on sentence punctuation.
 
-    Sentences longer than ``max_chars`` are also split at commas.
+    Sentences longer than ``max_chars`` are also split at commas, at pauses longer than
+    ``max_gap`` seconds, and hard-capped at ``2 * max_chars`` (for unpunctuated ASR output).
     """
     chars = [(to_simplified(c), s, e) for c, s, e in _char_times(cues)]
     sentences: list[Cue] = []
@@ -53,9 +56,10 @@ def split_sentences(cues: list[Cue], max_chars: int = 60) -> list[Cue]:
         buf.append(item)
         ch = item[0]
         nxt = chars[i + 1][0] if i + 1 < len(chars) else ""
+        pause = i + 1 < len(chars) and chars[i + 1][1] - item[2] > max_gap
         if ch in _END and nxt not in _CLOSERS:
             flush()
-        elif ch in "，,、" and len(buf) >= max_chars:
+        elif (ch in "，,、" and len(buf) >= max_chars) or pause or len(buf) >= 2 * max_chars:
             flush()
     flush()
     return sentences

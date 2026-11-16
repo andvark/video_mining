@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
   "yt-dlp",
   "faster-whisper",
+  "av>=11,<17",  # newer PyAV removed open(metadata_errors=...) used by faster-whisper 1.2
   "opencc-python-reimplemented",
   "pypinyin",
   "jieba",
@@ -41,3 +42,4 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = ["ignore::SyntaxWarning"]
